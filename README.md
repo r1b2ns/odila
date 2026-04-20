@@ -10,7 +10,7 @@ This project aims to expose, in a native macOS experience, every feature availab
 
 - **Platform:** macOS 15.6+
 - **Stack:** SwiftUI
-- **Reference CLI:** [tw93/Mole](https://github.com/tw93/Mole) (also available locally at `../open-mole/`)
+- **Reference CLI:** [tw93/Mole](https://github.com/tw93/Mole)
 - **License:** MIT (open-source)
 - **Distribution:** will be published on the Mac App Store
 
@@ -33,17 +33,6 @@ open UIMole.xcodeproj
 ```
 
 Whenever you add, remove, or rename source files, run `xcodegen generate` again to keep the project in sync.
-
-## Structure
-
-```
-open-ui-mole/
-├── UIMole/              # SwiftUI app
-├── UIMoleTests/         # Unit tests
-├── UIMoleUITests/       # UI tests
-├── project.yml          # XcodeGen configuration
-└── .swiftlint.yml       # SwiftLint rules
-```
 
 ## License
 

@@ -1,0 +1,7 @@
+// Development (Debug) build configuration
+// Copy this file to Development.xcconfig and fill in your own values.
+// Development.xcconfig is gitignored — never commit it.
+
+DEVELOPMENT_TEAM = YOUR_TEAM_ID
+BUNDLE_ID_PREFIX = com.example
+PRODUCT_BUNDLE_IDENTIFIER = $(BUNDLE_ID_PREFIX).UIMole
