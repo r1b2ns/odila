@@ -1,0 +1,4 @@
+# Binaries fetched at build time by Scripts/fetch-mole.sh — never commit.
+*
+!.gitignore
+!.gitkeep

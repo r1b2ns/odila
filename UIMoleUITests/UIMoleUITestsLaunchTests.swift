@@ -1,10 +1,3 @@
-//
-//  UIMoleUITestsLaunchTests.swift
-//  UIMoleUITests
-//
-//  Created by Rubens Machion on 20/04/26.
-//
-
 import XCTest
 
 final class UIMoleUITestsLaunchTests: XCTestCase {

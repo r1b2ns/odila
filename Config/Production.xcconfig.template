@@ -5,3 +5,8 @@
 DEVELOPMENT_TEAM = YOUR_TEAM_ID
 BUNDLE_ID_PREFIX = com.example
 PRODUCT_BUNDLE_IDENTIFIER = $(BUNDLE_ID_PREFIX).UIMole
+
+// Developer ID signing for out-of-MAS distribution (notarized).
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Developer ID Application
+OTHER_CODE_SIGN_FLAGS = --timestamp --options=runtime
