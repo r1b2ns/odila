@@ -22,11 +22,16 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
     private(set) var elapsedSeconds: Int = 0
 
     private let service: AnalyzeService
+    private let cachePurger: AnalyzeCachePurging?
     private var currentTask: Task<Void, Never>?
     private var tickerTask: Task<Void, Never>?
 
-    init(service: AnalyzeService) {
+    init(
+        service: AnalyzeService,
+        cachePurger: AnalyzeCachePurging? = nil
+    ) {
         self.service = service
+        self.cachePurger = cachePurger
     }
 
     func load() {
@@ -55,6 +60,8 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
             currentTask = nil
             stopTicker()
         }
+        await cachePurger?.purgeIfNeeded()
+        if Task.isCancelled { return }
         do {
             let report = try await service.fetchReport()
             if Task.isCancelled { return }

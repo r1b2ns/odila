@@ -2,13 +2,20 @@ import SwiftUI
 
 enum AnalyzeFactory {
 
+    /// Process-wide purger so the cache is only wiped once per UIMole launch,
+    /// no matter how many times the Analyze screen is opened.
+    nonisolated(unsafe) private static let sharedCachePurger: AnalyzeCachePurging =
+        AnalyzeCachePurger(executor: CommandExecutor())
+
     @MainActor
     static func make() -> some View {
-        AnalyzeFactoryView()
+        AnalyzeFactoryView(cachePurger: sharedCachePurger)
     }
 }
 
 private struct AnalyzeFactoryView: View {
+
+    let cachePurger: AnalyzeCachePurging
 
     var body: some View {
         do {
@@ -18,7 +25,10 @@ private struct AnalyzeFactoryView: View {
                 decoder: CommandOutputJSONDecoder(),
                 binaryURL: binaryURL
             )
-            let viewModel = DefaultAnalyzeViewModel(service: service)
+            let viewModel = DefaultAnalyzeViewModel(
+                service: service,
+                cachePurger: cachePurger
+            )
             return AnyView(AnalyzeView(viewModel: viewModel))
         } catch {
             return AnyView(

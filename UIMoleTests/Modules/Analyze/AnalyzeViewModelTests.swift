@@ -24,6 +24,29 @@ struct AnalyzeViewModelTests {
     }
 
     @Test
+    func purgesCacheBeforeEveryFetchAttempt() async throws {
+        let purger = MockAnalyzeCachePurger()
+        let service = MockAnalyzeService(result: .success(.fixture()))
+        let sut = DefaultAnalyzeViewModel(service: service, cachePurger: purger)
+
+        sut.load()
+        try await waitUntil { sut.report != nil }
+        sut.refresh()
+        try await waitUntil(timeout: .seconds(2)) { sut.isLoading == false && sut.report != nil }
+
+        // Small settling delay so the second fetch's awaited purge lands.
+        try await Task.sleep(for: .milliseconds(50))
+
+        // The purger is called every time the view model starts a fetch, but
+        // the purger itself is responsible for making it a no-op after the
+        // first run (tested in AnalyzeCachePurgerTests).
+        let purgeCalls = await purger.callCount
+        let serviceCalls = await service.callCount
+        #expect(serviceCalls == 2)
+        #expect(purgeCalls == serviceCalls)
+    }
+
+    @Test
     func setsErrorMessageWhenServiceFails() async throws {
         let service = MockAnalyzeService(result: .failure(DummyError()))
         let sut = DefaultAnalyzeViewModel(service: service)
