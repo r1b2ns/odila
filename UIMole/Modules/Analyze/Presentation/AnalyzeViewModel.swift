@@ -6,7 +6,6 @@ protocol AnalyzeViewModel: AnyObject, Observable {
     var report: AnalyzeReport? { get }
     var errorMessage: String? { get }
     var isLoading: Bool { get }
-    var elapsedSeconds: Int { get }
     var progressEntries: [AnalyzeProgressEntry] { get }
 
     func load()
@@ -20,14 +19,12 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
     private(set) var report: AnalyzeReport?
     private(set) var errorMessage: String?
     private(set) var isLoading: Bool = false
-    private(set) var elapsedSeconds: Int = 0
     private(set) var progressEntries: [AnalyzeProgressEntry] = []
 
     private let service: AnalyzeService
     private let cachePurger: AnalyzeCachePurging?
     private let progressSource: AnalyzeProgressSourcing?
     private var currentTask: Task<Void, Never>?
-    private var tickerTask: Task<Void, Never>?
     private var progressTask: Task<Void, Never>?
 
     init(
@@ -54,7 +51,6 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
         isLoading = true
         errorMessage = nil
         progressEntries = []
-        startTicker()
         startProgressStream()
         currentTask = Task { [weak self] in
             guard let self else { return }
@@ -66,7 +62,6 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
         defer {
             isLoading = false
             currentTask = nil
-            stopTicker()
             stopProgressStream()
         }
         await cachePurger?.purgeIfNeeded()
@@ -80,23 +75,6 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
             if Task.isCancelled { return }
             self.errorMessage = String(describing: error)
         }
-    }
-
-    private func startTicker() {
-        tickerTask?.cancel()
-        elapsedSeconds = 0
-        tickerTask = Task { [weak self] in
-            while !Task.isCancelled {
-                try? await Task.sleep(for: .seconds(1))
-                if Task.isCancelled { return }
-                self?.elapsedSeconds += 1
-            }
-        }
-    }
-
-    private func stopTicker() {
-        tickerTask?.cancel()
-        tickerTask = nil
     }
 
     private func startProgressStream() {

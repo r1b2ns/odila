@@ -5,18 +5,21 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
     @State var viewModel: ViewModel
     @State private var freeBytes: Int64 = 0
 
-    /// The approximate number of directory slots mole reports in the final JSON.
-    /// Used only to size the placeholder list during scanning.
-    private let expectedSlotCount = 14
+    /// `true` only while there are still unscanned categories. Once every
+    /// expected directory has a size, loading ornaments are hidden even if
+    /// the background fetch is still finalizing the JSON.
+    private var isActivelyScanning: Bool {
+        viewModel.isLoading
+            && viewModel.progressEntries.count < AnalyzeCategory.known.count
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             AnalyzeHeaderView(
                 freeBytes: freeBytes,
-                isLoading: viewModel.isLoading,
-                elapsedSeconds: viewModel.elapsedSeconds,
+                isLoading: isActivelyScanning,
                 completedCount: viewModel.progressEntries.count,
-                expectedCount: expectedSlotCount
+                expectedCount: AnalyzeCategory.known.count
             )
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -32,13 +35,13 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
                 Button {
                     viewModel.refresh()
                 } label: {
-                    if viewModel.isLoading {
+                    if isActivelyScanning {
                         ProgressView().controlSize(.small)
                     } else {
                         Label("Rescan", systemImage: "arrow.clockwise")
                     }
                 }
-                .disabled(viewModel.isLoading)
+                .disabled(isActivelyScanning)
             }
         }
         .onAppear { viewModel.load() }
@@ -56,10 +59,7 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
                 description: Text(error)
             )
         } else {
-            AnalyzePartialList(
-                entries: viewModel.progressEntries,
-                totalSlots: expectedSlotCount
-            )
+            AnalyzePartialList(entries: viewModel.progressEntries)
         }
     }
 
@@ -76,7 +76,6 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
 private struct AnalyzeHeaderView: View {
     let freeBytes: Int64
     let isLoading: Bool
-    let elapsedSeconds: Int
     let completedCount: Int
     let expectedCount: Int
 
@@ -103,23 +102,12 @@ private struct AnalyzeHeaderView: View {
             if isLoading {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text(progressLabel)
+                    Text("Scanning directories…, \(max(0, expectedCount - completedCount)) left")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
             }
         }
-    }
-
-    private var progressLabel: String {
-        let left = max(0, expectedCount - completedCount)
-        return "Scanning directories…, \(left) left · \(formattedElapsed)"
-    }
-
-    private var formattedElapsed: String {
-        let minutes = elapsedSeconds / 60
-        let seconds = elapsedSeconds % 60
-        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
@@ -128,10 +116,15 @@ private struct AnalyzeHeaderView: View {
 private struct AnalyzeResultsList: View {
     let report: AnalyzeReport
 
+    private static let hiddenEntryNames: Set<String> = ["Old Downloads (90d+)"]
+
     var body: some View {
+        let visibleEntries = report.entries
+            .filter { !Self.hiddenEntryNames.contains($0.name) }
+            .sorted { $0.size > $1.size }
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(Array(report.entries.enumerated()), id: \.element.id) { index, entry in
+                ForEach(Array(visibleEntries.enumerated()), id: \.element.id) { index, entry in
                     AnalyzeResultRow(
                         index: index + 1,
                         entry: entry,
@@ -189,24 +182,57 @@ private struct AnalyzeResultRow: View {
 // MARK: - Partial list (while scanning)
 
 private struct AnalyzePartialList: View {
+
     let entries: [AnalyzeProgressEntry]
-    let totalSlots: Int
+
+    private struct Slot: Identifiable {
+        let category: AnalyzeCategory
+        let progress: AnalyzeProgressEntry?
+
+        var id: String { category.id }
+        var size: Int64 { progress?.size ?? 0 }
+    }
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 let runningTotal = max(1, entries.reduce(Int64(0)) { $0 + $1.size })
-                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                    AnalyzePartialRow(
-                        index: index + 1,
-                        entry: entry,
-                        runningTotal: runningTotal
-                    )
+                let entriesByPath = Dictionary(
+                    uniqueKeysWithValues: entries.map { ($0.path, $0) }
+                )
+
+                let knownPaths = Set(AnalyzeCategory.known.map(\.path))
+                let knownSlots = AnalyzeCategory.known.map { category in
+                    Slot(category: category, progress: entriesByPath[category.path])
                 }
-                let pendingCount = max(0, totalSlots - entries.count)
-                if pendingCount > 0 {
-                    ForEach(0..<pendingCount, id: \.self) { offset in
-                        AnalyzePlaceholderRow(index: entries.count + offset + 1)
+                let extraSlots = entries
+                    .filter { !knownPaths.contains($0.path) }
+                    .map { progress in
+                        Slot(
+                            category: AnalyzeCategory(
+                                path: progress.path,
+                                displayName: AnalyzeCategory.displayName(for: progress.path)
+                            ),
+                            progress: progress
+                        )
+                    }
+
+                // Largest → smallest. Pending rows (size 0) sink to the bottom.
+                let sorted = (knownSlots + extraSlots).sorted { $0.size > $1.size }
+
+                ForEach(Array(sorted.enumerated()), id: \.element.id) { index, slot in
+                    if let progress = slot.progress {
+                        AnalyzePartialRow(
+                            index: index + 1,
+                            progress: progress,
+                            displayName: slot.category.displayName,
+                            runningTotal: runningTotal
+                        )
+                    } else {
+                        AnalyzePendingRow(
+                            index: index + 1,
+                            displayName: slot.category.displayName
+                        )
                     }
                 }
             }
@@ -218,7 +244,8 @@ private struct AnalyzePartialList: View {
 
 private struct AnalyzePartialRow: View {
     let index: Int
-    let entry: AnalyzeProgressEntry
+    let progress: AnalyzeProgressEntry
+    let displayName: String
     let runningTotal: Int64
 
     var body: some View {
@@ -229,23 +256,24 @@ private struct AnalyzePartialRow: View {
             isPending: false,
             iconName: "folder.fill",
             iconColor: .secondary,
-            title: AnalyzeProgressEntry.displayName(for: entry.path),
+            title: displayName,
             titleColor: .primary,
             hasInsightMark: false,
-            trailingText: ByteFormatter.string(entry.size),
+            trailingText: ByteFormatter.string(progress.size),
             trailingColor: AnalyzeProgressBar.colorForPercent(percent),
             showBroom: false
         )
     }
 
     private var percent: Double {
-        guard runningTotal > 0, entry.size > 0 else { return 0 }
-        return Double(entry.size) / Double(runningTotal) * 100
+        guard runningTotal > 0, progress.size > 0 else { return 0 }
+        return Double(progress.size) / Double(runningTotal) * 100
     }
 }
 
-private struct AnalyzePlaceholderRow: View {
+private struct AnalyzePendingRow: View {
     let index: Int
+    let displayName: String
 
     var body: some View {
         AnalyzeRowLayout(
@@ -255,8 +283,8 @@ private struct AnalyzePlaceholderRow: View {
             isPending: true,
             iconName: "folder",
             iconColor: Color.secondary.opacity(0.55),
-            title: "pending..",
-            titleColor: Color.secondary.opacity(0.55),
+            title: displayName,
+            titleColor: Color.secondary.opacity(0.75),
             hasInsightMark: false,
             trailingText: "pending..",
             trailingColor: Color.secondary.opacity(0.55),
