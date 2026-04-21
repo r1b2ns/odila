@@ -27,7 +27,8 @@ private struct AnalyzeFactoryView: View {
             )
             let viewModel = DefaultAnalyzeViewModel(
                 service: service,
-                cachePurger: cachePurger
+                cachePurger: cachePurger,
+                progressSource: AnalyzeProgressSource()
             )
             return AnyView(AnalyzeView(viewModel: viewModel))
         } catch {

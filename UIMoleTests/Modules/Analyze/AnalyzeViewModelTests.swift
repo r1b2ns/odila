@@ -24,6 +24,58 @@ struct AnalyzeViewModelTests {
     }
 
     @Test
+    func streamsProgressEntriesWhileScanning() async throws {
+        // Service blocks for ~400ms so progress snapshots arrive mid-fetch.
+        let service = MockAnalyzeService { _ in
+            try await Task.sleep(for: .milliseconds(400))
+            return .fixture()
+        }
+        let progress = MockAnalyzeProgressSource(
+            snapshots: [
+                [AnalyzeProgressEntry(path: "/a", size: 100)],
+                [
+                    AnalyzeProgressEntry(path: "/a", size: 100),
+                    AnalyzeProgressEntry(path: "/b", size: 300)
+                ]
+            ],
+            interval: .milliseconds(50)
+        )
+        let sut = DefaultAnalyzeViewModel(service: service, progressSource: progress)
+
+        sut.load()
+        try await waitUntil { sut.progressEntries.count == 2 }
+
+        // Entries sorted by size desc.
+        #expect(sut.progressEntries.first?.path == "/b")
+        #expect(sut.progressEntries.last?.path == "/a")
+
+        // Once the fetch completes, the stream is stopped.
+        try await waitUntil { sut.report != nil }
+        #expect(sut.isLoading == false)
+    }
+
+    @Test
+    func refreshResetsProgressEntries() async throws {
+        let service = MockAnalyzeService { _ in
+            try await Task.sleep(for: .milliseconds(300))
+            return .fixture()
+        }
+        let progress = MockAnalyzeProgressSource(
+            snapshots: [[AnalyzeProgressEntry(path: "/a", size: 100)]],
+            interval: .milliseconds(20)
+        )
+        let sut = DefaultAnalyzeViewModel(service: service, progressSource: progress)
+
+        sut.load()
+        try await waitUntil { !sut.progressEntries.isEmpty }
+        try await waitUntil { sut.report != nil }
+
+        sut.refresh()
+        #expect(sut.progressEntries.isEmpty)
+        try await waitUntil { !sut.isLoading }
+    }
+
+    @Test
     func purgesCacheBeforeEveryFetchAttempt() async throws {
         let purger = MockAnalyzeCachePurger()
         let service = MockAnalyzeService(result: .success(.fixture()))

@@ -7,6 +7,7 @@ protocol AnalyzeViewModel: AnyObject, Observable {
     var errorMessage: String? { get }
     var isLoading: Bool { get }
     var elapsedSeconds: Int { get }
+    var progressEntries: [AnalyzeProgressEntry] { get }
 
     func load()
     func refresh()
@@ -20,18 +21,23 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
     private(set) var errorMessage: String?
     private(set) var isLoading: Bool = false
     private(set) var elapsedSeconds: Int = 0
+    private(set) var progressEntries: [AnalyzeProgressEntry] = []
 
     private let service: AnalyzeService
     private let cachePurger: AnalyzeCachePurging?
+    private let progressSource: AnalyzeProgressSourcing?
     private var currentTask: Task<Void, Never>?
     private var tickerTask: Task<Void, Never>?
+    private var progressTask: Task<Void, Never>?
 
     init(
         service: AnalyzeService,
-        cachePurger: AnalyzeCachePurging? = nil
+        cachePurger: AnalyzeCachePurging? = nil,
+        progressSource: AnalyzeProgressSourcing? = nil
     ) {
         self.service = service
         self.cachePurger = cachePurger
+        self.progressSource = progressSource
     }
 
     func load() {
@@ -47,7 +53,9 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
     private func startFetch() {
         isLoading = true
         errorMessage = nil
+        progressEntries = []
         startTicker()
+        startProgressStream()
         currentTask = Task { [weak self] in
             guard let self else { return }
             await self.performFetch()
@@ -59,6 +67,7 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
             isLoading = false
             currentTask = nil
             stopTicker()
+            stopProgressStream()
         }
         await cachePurger?.purgeIfNeeded()
         if Task.isCancelled { return }
@@ -88,5 +97,32 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
     private func stopTicker() {
         tickerTask?.cancel()
         tickerTask = nil
+    }
+
+    private func startProgressStream() {
+        progressTask?.cancel()
+        guard let progressSource else { return }
+        let stream = progressSource.stream()
+        progressTask = Task { @MainActor [weak self] in
+            for await snapshot in stream {
+                if Task.isCancelled { return }
+                self?.mergeProgress(snapshot)
+            }
+        }
+    }
+
+    private func stopProgressStream() {
+        progressTask?.cancel()
+        progressTask = nil
+    }
+
+    private func mergeProgress(_ snapshot: [AnalyzeProgressEntry]) {
+        // Merge by path; latest wins. Keeps previously-seen entries in view if
+        // mole rewrites the overview file mid-scan and temporarily drops some.
+        var dict = Dictionary(uniqueKeysWithValues: progressEntries.map { ($0.path, $0) })
+        for entry in snapshot {
+            dict[entry.path] = entry
+        }
+        progressEntries = dict.values.sorted { $0.size > $1.size }
     }
 }

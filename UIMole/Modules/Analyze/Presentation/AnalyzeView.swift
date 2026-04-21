@@ -5,12 +5,18 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
     @State var viewModel: ViewModel
     @State private var freeBytes: Int64 = 0
 
+    /// The approximate number of directory slots mole reports in the final JSON.
+    /// Used only to size the placeholder list during scanning.
+    private let expectedSlotCount = 14
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             AnalyzeHeaderView(
                 freeBytes: freeBytes,
                 isLoading: viewModel.isLoading,
-                elapsedSeconds: viewModel.elapsedSeconds
+                elapsedSeconds: viewModel.elapsedSeconds,
+                completedCount: viewModel.progressEntries.count,
+                expectedCount: expectedSlotCount
             )
             .padding(.horizontal, 20)
             .padding(.vertical, 14)
@@ -50,7 +56,10 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
                 description: Text(error)
             )
         } else {
-            AnalyzePlaceholderList()
+            AnalyzePartialList(
+                entries: viewModel.progressEntries,
+                totalSlots: expectedSlotCount
+            )
         }
     }
 
@@ -68,6 +77,8 @@ private struct AnalyzeHeaderView: View {
     let freeBytes: Int64
     let isLoading: Bool
     let elapsedSeconds: Int
+    let completedCount: Int
+    let expectedCount: Int
 
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
@@ -92,12 +103,17 @@ private struct AnalyzeHeaderView: View {
             if isLoading {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
-                    Text("Scanning directories… \(formattedElapsed)")
+                    Text(progressLabel)
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)
                 }
             }
         }
+    }
+
+    private var progressLabel: String {
+        let left = max(0, expectedCount - completedCount)
+        return "Scanning directories…, \(left) left · \(formattedElapsed)"
     }
 
     private var formattedElapsed: String {
@@ -107,7 +123,7 @@ private struct AnalyzeHeaderView: View {
     }
 }
 
-// MARK: - Results list
+// MARK: - Final results list
 
 private struct AnalyzeResultsList: View {
     let report: AnalyzeReport
@@ -116,7 +132,7 @@ private struct AnalyzeResultsList: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
                 ForEach(Array(report.entries.enumerated()), id: \.element.id) { index, entry in
-                    AnalyzeEntryRow(
+                    AnalyzeResultRow(
                         index: index + 1,
                         entry: entry,
                         totalSize: report.totalSize
@@ -129,56 +145,26 @@ private struct AnalyzeResultsList: View {
     }
 }
 
-private struct AnalyzeEntryRow: View {
+private struct AnalyzeResultRow: View {
     let index: Int
     let entry: AnalyzeReport.Entry
     let totalSize: Int64
 
     var body: some View {
-        HStack(spacing: 12) {
-            Text("\(index).")
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(.secondary)
-                .frame(width: 32, alignment: .trailing)
-
-            AnalyzeProgressBar(percent: percent, pending: entry.hasUnknownSize)
-                .frame(width: 220, height: 14)
-
-            Text(percentText)
-                .font(.system(size: 13, design: .monospaced))
-                .frame(width: 60, alignment: .trailing)
-                .foregroundStyle(tint)
-
-            Text("│")
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(.tertiary)
-
-            Image(systemName: entry.isDir ? "folder.fill" : "doc.fill")
-                .foregroundStyle(.secondary)
-                .frame(width: 18)
-
-            Text(entry.name)
-                .font(.system(size: 13))
-                .lineLimit(1)
-
-            if entry.insight == true {
-                Text("•")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.blue)
-            }
-
-            Spacer()
-
-            Text(sizeText)
-                .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(tint)
-
-            if entry.cleanable == true {
-                Text("🧹")
-                    .font(.system(size: 13))
-            }
-        }
-        .padding(.vertical, 2)
+        AnalyzeRowLayout(
+            index: index,
+            percent: percent,
+            percentText: percentText,
+            isPending: entry.hasUnknownSize,
+            iconName: entry.isDir ? "folder.fill" : "doc.fill",
+            iconColor: .secondary,
+            title: entry.name,
+            titleColor: .primary,
+            hasInsightMark: entry.insight == true,
+            trailingText: sizeText,
+            trailingColor: tint,
+            showBroom: entry.cleanable == true
+        )
     }
 
     private var percent: Double {
@@ -200,16 +186,28 @@ private struct AnalyzeEntryRow: View {
     }
 }
 
-// MARK: - Placeholder list (while scanning)
+// MARK: - Partial list (while scanning)
 
-private struct AnalyzePlaceholderList: View {
-    private let placeholderCount = 14
+private struct AnalyzePartialList: View {
+    let entries: [AnalyzeProgressEntry]
+    let totalSlots: Int
 
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 2) {
-                ForEach(0..<placeholderCount, id: \.self) { index in
-                    AnalyzePlaceholderRow(index: index + 1)
+                let runningTotal = max(1, entries.reduce(Int64(0)) { $0 + $1.size })
+                ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
+                    AnalyzePartialRow(
+                        index: index + 1,
+                        entry: entry,
+                        runningTotal: runningTotal
+                    )
+                }
+                let pendingCount = max(0, totalSlots - entries.count)
+                if pendingCount > 0 {
+                    ForEach(0..<pendingCount, id: \.self) { offset in
+                        AnalyzePlaceholderRow(index: entries.count + offset + 1)
+                    }
                 }
             }
             .padding(.horizontal, 16)
@@ -218,8 +216,70 @@ private struct AnalyzePlaceholderList: View {
     }
 }
 
+private struct AnalyzePartialRow: View {
+    let index: Int
+    let entry: AnalyzeProgressEntry
+    let runningTotal: Int64
+
+    var body: some View {
+        AnalyzeRowLayout(
+            index: index,
+            percent: percent,
+            percentText: String(format: "%.1f%%", percent),
+            isPending: false,
+            iconName: "folder.fill",
+            iconColor: .secondary,
+            title: AnalyzeProgressEntry.displayName(for: entry.path),
+            titleColor: .primary,
+            hasInsightMark: false,
+            trailingText: ByteFormatter.string(entry.size),
+            trailingColor: AnalyzeProgressBar.colorForPercent(percent),
+            showBroom: false
+        )
+    }
+
+    private var percent: Double {
+        guard runningTotal > 0, entry.size > 0 else { return 0 }
+        return Double(entry.size) / Double(runningTotal) * 100
+    }
+}
+
 private struct AnalyzePlaceholderRow: View {
     let index: Int
+
+    var body: some View {
+        AnalyzeRowLayout(
+            index: index,
+            percent: 0,
+            percentText: "--",
+            isPending: true,
+            iconName: "folder",
+            iconColor: Color.secondary.opacity(0.55),
+            title: "pending..",
+            titleColor: Color.secondary.opacity(0.55),
+            hasInsightMark: false,
+            trailingText: "pending..",
+            trailingColor: Color.secondary.opacity(0.55),
+            showBroom: false
+        )
+    }
+}
+
+// MARK: - Shared row layout
+
+private struct AnalyzeRowLayout: View {
+    let index: Int
+    let percent: Double
+    let percentText: String
+    let isPending: Bool
+    let iconName: String
+    let iconColor: Color
+    let title: String
+    let titleColor: Color
+    let hasInsightMark: Bool
+    let trailingText: String
+    let trailingColor: Color
+    let showBroom: Bool
 
     var body: some View {
         HStack(spacing: 12) {
@@ -228,31 +288,43 @@ private struct AnalyzePlaceholderRow: View {
                 .foregroundStyle(.secondary)
                 .frame(width: 32, alignment: .trailing)
 
-            AnalyzeProgressBar(percent: 0, pending: true)
+            AnalyzeProgressBar(percent: percent, pending: isPending)
                 .frame(width: 220, height: 14)
 
-            Text("--")
+            Text(percentText)
                 .font(.system(size: 13, design: .monospaced))
                 .frame(width: 60, alignment: .trailing)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(trailingColor)
 
             Text("│")
                 .font(.system(size: 13, design: .monospaced))
                 .foregroundStyle(.tertiary)
 
-            Image(systemName: "folder")
-                .foregroundStyle(.tertiary)
+            Image(systemName: iconName)
+                .foregroundStyle(iconColor)
                 .frame(width: 18)
 
-            Text("pending..")
+            Text(title)
                 .font(.system(size: 13))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(titleColor)
+                .lineLimit(1)
+
+            if hasInsightMark {
+                Text("•")
+                    .font(.system(size: 13))
+                    .foregroundStyle(.blue)
+            }
 
             Spacer()
 
-            Text("pending..")
+            Text(trailingText)
                 .font(.system(size: 13, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(trailingColor)
+
+            if showBroom {
+                Text("🧹")
+                    .font(.system(size: 13))
+            }
         }
         .padding(.vertical, 2)
     }
@@ -260,7 +332,7 @@ private struct AnalyzePlaceholderRow: View {
 
 // MARK: - Progress bar
 
-private struct AnalyzeProgressBar: View {
+struct AnalyzeProgressBar: View {
     let percent: Double
     let pending: Bool
 
@@ -278,8 +350,8 @@ private struct AnalyzeProgressBar: View {
     }
 
     static func colorForPercent(_ percent: Double) -> Color {
-        if percent > 20 { return Color(red: 0.82, green: 0.75, blue: 0.24) } // mole's olive/yellow
-        if percent > 5 { return Color(red: 0.57, green: 0.45, blue: 1.0) }    // mole's purple
+        if percent > 20 { return Color(red: 0.82, green: 0.75, blue: 0.24) } // olive
+        if percent > 5 { return Color(red: 0.57, green: 0.45, blue: 1.0) }   // purple
         return .secondary
     }
 }
