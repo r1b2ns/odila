@@ -22,7 +22,7 @@ struct HomeViewModelTests {
             .filter(\.isEnabled)
             .map(\.id)
 
-        #expect(Set(enabledIDs) == [.status, .analyze, .settings])
+        #expect(Set(enabledIDs) == [.status, .analyze, .uninstall, .settings])
     }
 
     @Test

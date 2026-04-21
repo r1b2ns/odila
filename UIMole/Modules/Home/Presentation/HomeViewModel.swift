@@ -23,7 +23,7 @@ final class DefaultHomeViewModel: HomeViewModel {
             icon: "minus.circle",
             title: "Uninstall",
             subtitle: "Remove apps and their leftovers",
-            isEnabled: false
+            isEnabled: true
         ),
         HomeMenuItem(
             id: .optimize,

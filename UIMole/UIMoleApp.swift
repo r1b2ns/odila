@@ -23,9 +23,11 @@ struct UIMoleApp: App {
             StatusFactory.make()
         case .analyze:
             AnalyzeFactory.make()
+        case .uninstall:
+            UninstallFactory.make()
         case .settings:
             SettingsFactory.make()
-        case .clean, .uninstall, .optimize:
+        case .clean, .optimize:
             ContentUnavailableView(
                 "Coming soon",
                 systemImage: "hammer",
