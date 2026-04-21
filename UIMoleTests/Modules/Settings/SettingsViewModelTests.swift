@@ -23,6 +23,32 @@ struct SettingsViewModelTests {
         #expect(sut.versionString == "0.0 (0)")
     }
 
+    @Test
+    func safeModeInitialisesFromPreferences() {
+        let prefsOn = InMemoryPreferencesStore(safeModeEnabled: true)
+        let prefsOff = InMemoryPreferencesStore(safeModeEnabled: false)
+
+        let vmOn = DefaultSettingsViewModel(preferences: prefsOn)
+        let vmOff = DefaultSettingsViewModel(preferences: prefsOff)
+
+        #expect(vmOn.safeModeEnabled == true)
+        #expect(vmOff.safeModeEnabled == false)
+    }
+
+    @Test
+    func toggleWritesThroughToPreferences() {
+        let prefs = InMemoryPreferencesStore(safeModeEnabled: true)
+        let sut = DefaultSettingsViewModel(preferences: prefs)
+
+        sut.setSafeMode(enabled: false)
+        #expect(sut.safeModeEnabled == false)
+        #expect(prefs.safeModeEnabled == false)
+
+        sut.setSafeMode(enabled: true)
+        #expect(sut.safeModeEnabled == true)
+        #expect(prefs.safeModeEnabled == true)
+    }
+
     // MARK: - Helpers
 
     private func makeEmptyBundle() throws -> Bundle {

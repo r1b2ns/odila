@@ -2,7 +2,7 @@ import SwiftUI
 
 struct SettingsView<ViewModel: SettingsViewModel>: View {
 
-    let viewModel: ViewModel
+    @State var viewModel: ViewModel
 
     var body: some View {
         Form {
@@ -12,12 +12,25 @@ struct SettingsView<ViewModel: SettingsViewModel>: View {
             }
 
             Section("Preferences") {
-                Text("No preferences available yet.")
-                    .foregroundStyle(.secondary)
+                Toggle(isOn: safeModeBinding) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Safe mode")
+                        Text("Preview commands before running them")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
             }
         }
         .formStyle(.grouped)
         .navigationTitle("Settings")
         .frame(minWidth: 520, minHeight: 420)
+    }
+
+    private var safeModeBinding: Binding<Bool> {
+        Binding(
+            get: { viewModel.safeModeEnabled },
+            set: { viewModel.setSafeMode(enabled: $0) }
+        )
     }
 }
