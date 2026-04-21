@@ -15,14 +15,14 @@ struct HomeViewModelTests {
     }
 
     @Test
-    func onlyStatusAndSettingsAreEnabled() {
+    func onlyImplementedDestinationsAreEnabled() {
         let sut = DefaultHomeViewModel()
 
         let enabledIDs = sut.menuItems
             .filter(\.isEnabled)
             .map(\.id)
 
-        #expect(Set(enabledIDs) == [.status, .settings])
+        #expect(Set(enabledIDs) == [.status, .analyze, .settings])
     }
 
     @Test

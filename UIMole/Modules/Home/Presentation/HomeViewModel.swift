@@ -37,7 +37,7 @@ final class DefaultHomeViewModel: HomeViewModel {
             icon: "chart.bar.xaxis",
             title: "Analyze",
             subtitle: "Inspect disk usage in detail",
-            isEnabled: false
+            isEnabled: true
         ),
         HomeMenuItem(
             id: .status,

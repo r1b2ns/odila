@@ -14,6 +14,7 @@ struct StatusSectionCard<Content: View>: View {
                 .foregroundStyle(.primary)
 
             content()
+            Spacer()
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
