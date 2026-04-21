@@ -28,6 +28,9 @@ targets:
     platform: macOS
     sources:
       - path: UIMole
+      - path: Vendor/mole
+        type: folder
+        buildPhase: resources
     resources:
       - path: UIMole/Assets.xcassets
     settings:
@@ -40,6 +43,10 @@ targets:
         INFOPLIST_KEY_NSMainStoryboardFile: ""
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
     preBuildScripts:
+      - name: Fetch Mole CLI
+        script: |
+          "${SRCROOT}/Scripts/fetch-mole.sh"
+        basedOnDependencyAnalysis: false
       - name: SwiftLint
         script: |
           if which swiftlint >/dev/null; then
@@ -47,6 +54,24 @@ targets:
           else
             echo "warning: SwiftLint not installed, download from https://github.com/realm/SwiftLint"
           fi
+        basedOnDependencyAnalysis: false
+    postBuildScripts:
+      - name: Sign embedded Mole binaries
+        script: |
+          set -e
+          MOLE_DIR="${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/Contents/Resources/mole"
+          [ -d "$MOLE_DIR" ] || exit 0
+          IDENTITY="${EXPANDED_CODE_SIGN_IDENTITY:-$CODE_SIGN_IDENTITY}"
+          [ -n "$IDENTITY" ] || { echo "warning: no code sign identity, skipping"; exit 0; }
+          TIMESTAMP_FLAG=""
+          if [ "$CONFIGURATION" = "Release" ]; then
+            TIMESTAMP_FLAG="--timestamp"
+          fi
+          find "$MOLE_DIR" -type f -perm +111 -print0 | while IFS= read -r -d '' bin; do
+            echo "codesign $bin"
+            codesign --force --options runtime $TIMESTAMP_FLAG \
+              --sign "$IDENTITY" "$bin"
+          done
         basedOnDependencyAnalysis: false
 
   UIMoleTests:

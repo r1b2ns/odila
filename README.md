@@ -10,11 +10,15 @@ This project aims to expose, in a native macOS experience, every feature availab
 
 - **Platform:** macOS 15.6+
 - **Stack:** SwiftUI
-- **Reference CLI:** [tw93/Mole](https://github.com/tw93/Mole)
+- **Reference CLI:** [tw93/Mole](https://github.com/tw93/Mole) (embedded in the app bundle)
 - **License:** MIT (open-source)
-- **Distribution:** will be published on the Mac App Store
+- **Distribution:** source-only for now — clone and run locally. Packaged distribution (Developer ID + notarized `.dmg`) is planned but not yet available.
 
 All features are developed with automated test coverage.
+
+### Why not the Mac App Store
+
+UIMole wraps the Mole CLI, which performs disk cleanup across locations outside any single app's sandbox container (Xcode DerivedData, package-manager caches, system temp, etc.). The Mac App Store sandbox does not permit that level of file access, and it also forbids shipping and `exec`-ing a bundled helper binary. Every comparable macOS cleanup tool (CleanMyMac X, OnyX, DaisyDisk, Parallels Toolbox) ships outside the MAS for the same reason, so UIMole will too once packaged releases start shipping.
 
 ## Requirements
 
@@ -25,9 +29,14 @@ All features are developed with automated test coverage.
 
 ## Setup
 
-After cloning the repository, generate the Xcode project with XcodeGen:
+After cloning the repository:
 
 ```bash
+cp Config/Development.xcconfig.template Config/Development.xcconfig
+cp Config/Production.xcconfig.template Config/Production.xcconfig
+# edit both files with your own DEVELOPMENT_TEAM and BUNDLE_ID_PREFIX
+
+./Scripts/fetch-mole.sh   # downloads and assembles the universal Mole binary
 xcodegen generate
 open UIMole.xcodeproj
 ```

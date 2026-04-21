@@ -71,7 +71,6 @@ struct CommandExecutorTests {
     func honoursCurrentDirectory() async throws {
         let sut = CommandExecutor()
         let tempDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-            .resolvingSymlinksInPath()
 
         let result = try await sut.execute(
             "/bin/pwd",
@@ -81,8 +80,10 @@ struct CommandExecutorTests {
         )
 
         #expect(result.isSuccess)
-        let trimmed = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        #expect(trimmed == tempDir.path)
+        let reportedPath = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let reportedResolved = URL(fileURLWithPath: reportedPath).resolvingSymlinksInPath().path
+        let expectedResolved = tempDir.resolvingSymlinksInPath().path
+        #expect(reportedResolved == expectedResolved)
     }
 
     @Test
@@ -104,5 +105,21 @@ struct CommandExecutorTests {
         #expect(CommandResult(output: "", error: "", exitCode: 0).isSuccess)
         #expect(CommandResult(output: "", error: "", exitCode: 1).isSuccess == false)
         #expect(CommandResult(output: "", error: "", exitCode: -1).isSuccess == false)
+    }
+
+    @Test
+    func executesEmbeddedMoleStatus() async throws {
+        let statusURL = try #require(
+            Bundle.main.url(forResource: "status", withExtension: nil, subdirectory: "mole"),
+            "embedded mole/status binary not found in app bundle"
+        )
+
+        let sut = CommandExecutor()
+        let result = try await sut.execute(statusURL.path, arguments: ["-json"])
+        print(result)
+        #expect(result.isSuccess, "mole status exited with \(result.exitCode): \(result.error)")
+        #expect(result.output.contains("\"collected_at\""))
+        #expect(result.output.contains("\"platform\""))
+        #expect(result.output.contains("\"uptime\""))
     }
 }
