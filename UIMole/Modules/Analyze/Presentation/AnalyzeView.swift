@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
@@ -156,7 +157,8 @@ private struct AnalyzeResultRow: View {
             hasInsightMark: entry.insight == true,
             trailingText: sizeText,
             trailingColor: tint,
-            showBroom: entry.cleanable == true
+            showBroom: entry.cleanable == true,
+            finderPath: entry.path
         )
     }
 
@@ -231,7 +233,8 @@ private struct AnalyzePartialList: View {
                     } else {
                         AnalyzePendingRow(
                             index: index + 1,
-                            displayName: slot.category.displayName
+                            displayName: slot.category.displayName,
+                            path: slot.category.path
                         )
                     }
                 }
@@ -261,7 +264,8 @@ private struct AnalyzePartialRow: View {
             hasInsightMark: false,
             trailingText: ByteFormatter.string(progress.size),
             trailingColor: AnalyzeProgressBar.colorForPercent(percent),
-            showBroom: false
+            showBroom: false,
+            finderPath: progress.path
         )
     }
 
@@ -274,6 +278,7 @@ private struct AnalyzePartialRow: View {
 private struct AnalyzePendingRow: View {
     let index: Int
     let displayName: String
+    let path: String
 
     var body: some View {
         AnalyzeRowLayout(
@@ -288,7 +293,8 @@ private struct AnalyzePendingRow: View {
             hasInsightMark: false,
             trailingText: "pending..",
             trailingColor: Color.secondary.opacity(0.55),
-            showBroom: false
+            showBroom: false,
+            finderPath: path
         )
     }
 }
@@ -308,6 +314,7 @@ private struct AnalyzeRowLayout: View {
     let trailingText: String
     let trailingColor: Color
     let showBroom: Bool
+    let finderPath: String?
 
     var body: some View {
         HStack(spacing: 12) {
@@ -353,8 +360,33 @@ private struct AnalyzeRowLayout: View {
                 Text("🧹")
                     .font(.system(size: 13))
             }
+
+            if let finderPath {
+                RevealInFinderButton(path: finderPath)
+            }
         }
         .padding(.vertical, 2)
+    }
+}
+
+private struct RevealInFinderButton: View {
+    let path: String
+
+    var body: some View {
+        Button {
+            NSWorkspace.shared.selectFile(
+                nil,
+                inFileViewerRootedAtPath: path
+            )
+        } label: {
+            Image(systemName: "arrow.up.forward.app")
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: 20, height: 20)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Reveal in Finder")
     }
 }
 
