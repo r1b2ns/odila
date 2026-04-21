@@ -53,6 +53,49 @@ struct AnalyzeViewModelTests {
     }
 
     @Test
+    func elapsedSecondsIncrementsWhileScanningAndStopsWhenDone() async throws {
+        // Service takes ~1.5s so at least one tick lands while loading.
+        let service = MockAnalyzeService { _ in
+            try await Task.sleep(for: .milliseconds(1_500))
+            return .fixture()
+        }
+        let sut = DefaultAnalyzeViewModel(service: service)
+
+        #expect(sut.elapsedSeconds == 0)
+
+        sut.load()
+        try await waitUntil(timeout: .seconds(3)) { sut.elapsedSeconds >= 1 }
+        #expect(sut.isLoading)
+
+        try await waitUntil(timeout: .seconds(3)) { sut.report != nil }
+        let frozenValue = sut.elapsedSeconds
+        #expect(sut.isLoading == false)
+
+        // After completion the ticker is stopped; the value must not keep growing.
+        try await Task.sleep(for: .milliseconds(1_200))
+        #expect(sut.elapsedSeconds == frozenValue)
+    }
+
+    @Test
+    func refreshResetsElapsedCounter() async throws {
+        let service = MockAnalyzeService { _ in
+            try await Task.sleep(for: .milliseconds(1_100))
+            return .fixture()
+        }
+        let sut = DefaultAnalyzeViewModel(service: service)
+
+        sut.load()
+        try await waitUntil(timeout: .seconds(3)) { sut.report != nil }
+        #expect(sut.elapsedSeconds >= 1)
+
+        sut.refresh()
+        // The counter should immediately reset to 0 when the next scan starts.
+        #expect(sut.elapsedSeconds == 0)
+        sut.refresh()  // no-op equivalent: keep it a single in-flight scan
+        try await waitUntil(timeout: .seconds(3)) { !sut.isLoading }
+    }
+
+    @Test
     func refreshTriggersAnotherFetch() async throws {
         let first = AnalyzeReport.fixture(path: "/alpha")
         let second = AnalyzeReport.fixture(path: "/beta")

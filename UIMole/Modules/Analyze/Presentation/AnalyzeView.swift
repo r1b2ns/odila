@@ -15,8 +15,7 @@ struct AnalyzeView<ViewModel: AnalyzeViewModel>: View {
                     description: Text(error)
                 )
             } else {
-                ProgressView("Scanning disk…")
-                    .controlSize(.large)
+                ScanProgressView(elapsedSeconds: viewModel.elapsedSeconds)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
@@ -98,6 +97,31 @@ private struct AnalyzeEntryRow: View {
 
     private var sizeText: String {
         entry.hasUnknownSize ? "—" : ByteFormatter.string(entry.size)
+    }
+}
+
+private struct ScanProgressView: View {
+    let elapsedSeconds: Int
+
+    var body: some View {
+        VStack(spacing: 16) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Scanning disk…")
+                .font(.headline)
+            Text(formatted)
+                .font(.title3.monospacedDigit())
+                .foregroundStyle(.secondary)
+            Text("This can take about a minute on the first run.")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+        }
+    }
+
+    private var formatted: String {
+        let minutes = elapsedSeconds / 60
+        let seconds = elapsedSeconds % 60
+        return String(format: "%d:%02d", minutes, seconds)
     }
 }
 
