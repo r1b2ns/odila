@@ -28,7 +28,6 @@ targets:
     platform: macOS
     sources:
       - path: UIMole
-      - path: Modules
       - path: Vendor/mole
         type: folder
         buildPhase: resources

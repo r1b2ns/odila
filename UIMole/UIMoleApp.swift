@@ -2,9 +2,33 @@ import SwiftUI
 
 @main
 struct UIMoleApp: App {
+
+    @State private var path = NavigationPath()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            NavigationStack(path: $path) {
+                HomeFactory.make()
+                    .navigationDestination(for: HomeDestination.self) { destination in
+                        destinationView(for: destination)
+                    }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(for destination: HomeDestination) -> some View {
+        switch destination {
+        case .status:
+            StatusFactory.make()
+        case .settings:
+            SettingsFactory.make()
+        case .clean, .uninstall, .optimize, .analyze:
+            ContentUnavailableView(
+                "Coming soon",
+                systemImage: "hammer",
+                description: Text("This feature isn't available yet.")
+            )
         }
     }
 }

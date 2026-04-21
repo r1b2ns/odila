@@ -6,4 +6,5 @@ enum HomeDestination: String, Hashable, Sendable {
     case optimize
     case analyze
     case status
+    case settings
 }

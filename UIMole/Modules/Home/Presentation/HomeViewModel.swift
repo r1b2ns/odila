@@ -45,6 +45,13 @@ final class DefaultHomeViewModel: HomeViewModel {
             title: "Status",
             subtitle: "Live system health and metrics",
             isEnabled: true
+        ),
+        HomeMenuItem(
+            id: .settings,
+            icon: "gearshape",
+            title: "Settings",
+            subtitle: "Preferences and app information",
+            isEnabled: true
         )
     ]
 }
