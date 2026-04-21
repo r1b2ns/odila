@@ -4,6 +4,7 @@ import SwiftUI
 struct UninstallView<ViewModel: UninstallViewModel>: View {
 
     @State var viewModel: ViewModel
+    @State private var showConfirmation: Bool = false
 
     var body: some View {
         Group {
@@ -28,34 +29,111 @@ struct UninstallView<ViewModel: UninstallViewModel>: View {
         }
         .frame(minWidth: 720, minHeight: 560)
         .navigationTitle("Uninstall")
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    viewModel.refresh()
+        .toolbar { toolbarContent }
+        .onAppear { viewModel.load() }
+        .confirmationDialog(
+            confirmationTitle,
+            isPresented: $showConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button(confirmationButtonTitle, role: .destructive) {
+                Task { await viewModel.uninstallSelected() }
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text(confirmationMessage)
+        }
+        .alert(
+            "Uninstall failed",
+            isPresented: Binding(
+                get: { viewModel.uninstallErrorMessage != nil },
+                set: { if !$0 { viewModel.dismissUninstallError() } }
+            ),
+            presenting: viewModel.uninstallErrorMessage
+        ) { _ in
+            Button("OK", role: .cancel) { viewModel.dismissUninstallError() }
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    // MARK: - Toolbar
+
+    @ToolbarContentBuilder
+    private var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .primaryAction) {
+            if !viewModel.selectedIDs.isEmpty {
+                Button(role: .destructive) {
+                    showConfirmation = true
                 } label: {
-                    if viewModel.isLoading {
-                        ProgressView().controlSize(.small)
-                    } else {
-                        Label("Refresh", systemImage: "arrow.clockwise")
-                    }
+                    Label(
+                        "Uninstall \(viewModel.selectedIDs.count)",
+                        systemImage: "trash"
+                    )
                 }
-                .disabled(viewModel.isLoading)
+                .disabled(viewModel.isUninstalling)
             }
         }
-        .onAppear { viewModel.load() }
+        ToolbarItem(placement: .primaryAction) {
+            Button {
+                viewModel.refresh()
+            } label: {
+                if viewModel.isLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+            }
+            .disabled(viewModel.isLoading || viewModel.isUninstalling)
+        }
     }
+
+    // MARK: - Confirmation copy
+
+    private var confirmationTitle: String {
+        let count = viewModel.selectedIDs.count
+        return count == 1 ? "Uninstall 1 app?" : "Uninstall \(count) apps?"
+    }
+
+    private var confirmationButtonTitle: String {
+        viewModel.safeModeEnabled ? "Preview" : "Uninstall"
+    }
+
+    private var confirmationMessage: String {
+        let names = viewModel.selectedApps.map(\.name).joined(separator: ", ")
+        if viewModel.safeModeEnabled {
+            return "Safe mode is on. Mole will run a dry-run and print what would be removed for: \(names)."
+        } else {
+            return "Mole will move the following apps and their leftovers to the Trash: \(names). This cannot be undone from UIMole."
+        }
+    }
+
+    // MARK: - List
 
     private var appList: some View {
         List {
             Section {
                 ForEach(viewModel.apps) { app in
-                    InstalledAppRow(app: app)
+                    InstalledAppRow(
+                        app: app,
+                        isSelected: viewModel.selectedIDs.contains(app.id),
+                        onToggle: { isSelected in
+                            viewModel.toggleSelection(of: app.id, isSelected: isSelected)
+                        }
+                    )
                 }
             } header: {
                 HStack {
                     Text("\(viewModel.apps.count) apps")
                         .font(.subheadline.monospaced())
                     Spacer()
+                    if !viewModel.selectedIDs.isEmpty {
+                        Button("Clear selection") {
+                            viewModel.clearSelection()
+                        }
+                        .buttonStyle(.link)
+                        .font(.caption)
+                    }
                 }
             }
         }
@@ -64,9 +142,21 @@ struct UninstallView<ViewModel: UninstallViewModel>: View {
 
 private struct InstalledAppRow: View {
     let app: InstalledApp
+    let isSelected: Bool
+    let onToggle: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 12) {
+            Toggle(
+                "",
+                isOn: Binding(
+                    get: { isSelected },
+                    set: { onToggle($0) }
+                )
+            )
+            .labelsHidden()
+            .toggleStyle(.checkbox)
+
             AppIconView(url: app.url)
                 .frame(width: 32, height: 32)
 

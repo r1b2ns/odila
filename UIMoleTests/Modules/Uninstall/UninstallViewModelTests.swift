@@ -66,6 +66,134 @@ struct UninstallViewModelTests {
     }
 
     @Test
+    func togglesSelection() async throws {
+        let app = InstalledApp(
+            name: "Alpha",
+            bundleIdentifier: "x.a",
+            version: "1",
+            url: URL(fileURLWithPath: "/A.app")
+        )
+        let service = MockInstalledAppsService(result: .success([app]))
+        let sut = DefaultUninstallViewModel(service: service)
+
+        sut.load()
+        try await waitUntil { !sut.apps.isEmpty }
+
+        #expect(sut.selectedIDs.isEmpty)
+        sut.toggleSelection(of: app.id, isSelected: true)
+        #expect(sut.selectedIDs == [app.id])
+        #expect(sut.selectedApps == [app])
+
+        sut.toggleSelection(of: app.id, isSelected: false)
+        #expect(sut.selectedIDs.isEmpty)
+    }
+
+    @Test
+    func uninstallSelectedInvokesCommandServiceWithNames() async throws {
+        let apps = [
+            InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app")),
+            InstalledApp(name: "Beta", bundleIdentifier: "x.b", version: "2", url: URL(fileURLWithPath: "/B.app"))
+        ]
+        let listService = MockInstalledAppsService(result: .success(apps))
+        let command = MockUninstallCommandService(
+            outcome: UninstallCommandOutcome(exitCode: 0, output: "", error: "")
+        )
+        let prefs = InMemoryPreferencesStore(safeModeEnabled: false)
+        let sut = DefaultUninstallViewModel(
+            service: listService,
+            uninstallService: command,
+            preferences: prefs
+        )
+
+        sut.load()
+        try await waitUntil { sut.apps.count == 2 }
+
+        sut.toggleSelection(of: apps[0].id, isSelected: true)
+        sut.toggleSelection(of: apps[1].id, isSelected: true)
+
+        await sut.uninstallSelected()
+
+        let invocations = await command.invocations
+        #expect(invocations.count == 1)
+        #expect(invocations.first?.names == ["Alpha", "Beta"])
+        #expect(invocations.first?.dryRun == false)
+        #expect(sut.isUninstalling == false)
+    }
+
+    @Test
+    func uninstallRespectsSafeModeAsDryRun() async throws {
+        let app = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let command = MockUninstallCommandService(
+            outcome: UninstallCommandOutcome(exitCode: 0, output: "would remove", error: "")
+        )
+        let prefs = InMemoryPreferencesStore(safeModeEnabled: true)
+        let sut = DefaultUninstallViewModel(
+            service: MockInstalledAppsService(result: .success([app])),
+            uninstallService: command,
+            preferences: prefs
+        )
+
+        sut.load()
+        try await waitUntil { !sut.apps.isEmpty }
+        sut.toggleSelection(of: app.id, isSelected: true)
+
+        await sut.uninstallSelected()
+
+        let invocations = await command.invocations
+        #expect(invocations.first?.dryRun == true)
+        // Dry-run leaves apps in the list (nothing was actually removed).
+        #expect(sut.apps.count == 1)
+    }
+
+    @Test
+    func uninstallFailureSurfacesErrorMessage() async throws {
+        let app = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let command = MockUninstallCommandService(
+            outcome: UninstallCommandOutcome(
+                exitCode: 127,
+                output: "",
+                error: "mo: command not found"
+            )
+        )
+        let sut = DefaultUninstallViewModel(
+            service: MockInstalledAppsService(result: .success([app])),
+            uninstallService: command,
+            preferences: InMemoryPreferencesStore(safeModeEnabled: false)
+        )
+
+        sut.load()
+        try await waitUntil { !sut.apps.isEmpty }
+        sut.toggleSelection(of: app.id, isSelected: true)
+
+        await sut.uninstallSelected()
+
+        #expect(sut.uninstallErrorMessage == "mo: command not found")
+        sut.dismissUninstallError()
+        #expect(sut.uninstallErrorMessage == nil)
+    }
+
+    @Test
+    func refreshDropsSelectionsForAppsNoLongerPresent() async throws {
+        let first = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let second = InstalledApp(name: "Beta", bundleIdentifier: "x.b", version: "2", url: URL(fileURLWithPath: "/B.app"))
+        let service = MockInstalledAppsService { call in
+            call == 1 ? [first, second] : [second]
+        }
+        let sut = DefaultUninstallViewModel(service: service)
+
+        sut.load()
+        try await waitUntil { sut.apps.count == 2 }
+        sut.toggleSelection(of: first.id, isSelected: true)
+        sut.toggleSelection(of: second.id, isSelected: true)
+
+        sut.refresh()
+        try await waitUntil { sut.apps.count == 1 }
+
+        // First is gone; its selection is cleaned up. Second remains selected.
+        #expect(sut.selectedIDs == [second.id])
+    }
+
+    @Test
     func refreshTriggersAnotherFetch() async throws {
         let firstBatch = [
             InstalledApp(
