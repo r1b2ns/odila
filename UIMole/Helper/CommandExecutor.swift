@@ -1,8 +1,3 @@
-//
-//  CommandExecutor.swift
-//  UIMole
-//
-
 import Foundation
 
 enum CommandExecutorError: Error, Equatable {

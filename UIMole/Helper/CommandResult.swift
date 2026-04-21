@@ -1,8 +1,3 @@
-//
-//  CommandResult.swift
-//  UIMole
-//
-
 import Foundation
 
 struct CommandResult: Sendable, Equatable {

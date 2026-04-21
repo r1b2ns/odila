@@ -1,8 +1,3 @@
-//
-//  CommandExecutorTests.swift
-//  UIMoleTests
-//
-
 import Foundation
 import Testing
 @testable import UIMole

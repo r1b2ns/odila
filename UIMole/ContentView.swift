@@ -1,24 +1,29 @@
-//
-//  ContentView.swift
-//  UIMole
-//
-//  Created by Rubens Machion on 20/04/26.
-//
-
 import SwiftUI
 
 struct ContentView: View {
-    var body: some View {
-        VStack {
-            Image(systemName: "globe")
-                .imageScale(.large)
-                .foregroundStyle(.tint)
-            Text("Hello, world!")
-        }
-        .padding()
-    }
-}
 
-#Preview {
-    ContentView()
+    @State private var path = NavigationPath()
+
+    var body: some View {
+        NavigationStack(path: $path) {
+            HomeFactory.make()
+                .navigationDestination(for: HomeDestination.self) { destination in
+                    destinationView(for: destination)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private func destinationView(for destination: HomeDestination) -> some View {
+        switch destination {
+        case .status:
+            StatusFactory.make()
+        case .clean, .uninstall, .optimize, .analyze:
+            ContentUnavailableView(
+                "Coming soon",
+                systemImage: "hammer",
+                description: Text("This feature isn't available yet.")
+            )
+        }
+    }
 }

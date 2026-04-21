@@ -1,8 +1,3 @@
-//
-//  CommandExecuting.swift
-//  UIMole
-//
-
 import Foundation
 
 protocol CommandExecuting: Sendable {
