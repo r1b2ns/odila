@@ -123,8 +123,21 @@ struct UninstallViewModelTests {
     @Test
     func uninstallRespectsSafeModeAsDryRun() async throws {
         let app = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let moleDryRunOutput = """
+        \u{001B}[0;33m→ DRY RUN MODE\u{001B}[0m, No app files or settings will be modified
+
+        ◎ Alpha , 8.0MB
+          ✓ /Applications/Alpha.app
+          ✓ ~/Library/Preferences/com.example.alpha.plist
+
+        Would remove 1 app, would free 8.0MB: Alpha
+        """
         let command = MockUninstallCommandService(
-            outcome: UninstallCommandOutcome(exitCode: 0, output: "would remove", error: "")
+            outcome: UninstallCommandOutcome(
+                exitCode: 0,
+                output: moleDryRunOutput,
+                error: ""
+            )
         )
         let prefs = InMemoryPreferencesStore(safeModeEnabled: true)
         let sut = DefaultUninstallViewModel(
@@ -143,6 +156,129 @@ struct UninstallViewModelTests {
         #expect(invocations.first?.dryRun == true)
         // Dry-run leaves apps in the list (nothing was actually removed).
         #expect(sut.apps.count == 1)
+        // The parsed preview is exposed to the view.
+        let preview = try #require(sut.preview)
+        #expect(preview.plans.count == 1)
+        #expect(preview.plans.first?.name == "Alpha")
+        #expect(preview.plans.first?.size == "8.0MB")
+        #expect(preview.plans.first?.paths.count == 2)
+        // Selection is cleared after the preview is produced.
+        #expect(sut.selectedIDs.isEmpty)
+
+        sut.dismissPreview()
+        #expect(sut.preview == nil)
+    }
+
+    @Test
+    func confirmDeleteInvokesCommandServiceWithoutDryRun() async throws {
+        let app = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let dryRunOutput = """
+        ◎ Alpha , 8.0MB
+          ✓ /Applications/Alpha.app
+        Would remove 1 app, would free 8.0MB: Alpha
+        """
+        let command = MockUninstallCommandService { names, dryRun in
+            if dryRun {
+                return UninstallCommandOutcome(
+                    exitCode: 0,
+                    output: dryRunOutput,
+                    error: ""
+                )
+            } else {
+                return UninstallCommandOutcome(exitCode: 0, output: "moved to trash", error: "")
+            }
+        }
+        let sut = DefaultUninstallViewModel(
+            service: MockInstalledAppsService(result: .success([app])),
+            uninstallService: command,
+            preferences: InMemoryPreferencesStore(safeModeEnabled: true)
+        )
+
+        sut.load()
+        try await waitUntil { !sut.apps.isEmpty }
+        sut.toggleSelection(of: app.id, isSelected: true)
+
+        await sut.uninstallSelected()
+        #expect(sut.preview != nil)
+
+        await sut.confirmDelete()
+
+        let invocations = await command.invocations
+        #expect(invocations.count == 2)
+        #expect(invocations[0].dryRun == true)
+        #expect(invocations[1].dryRun == false)
+        #expect(invocations[1].names == ["Alpha"])
+        // Preview is cleared after the real delete completes.
+        #expect(sut.preview == nil)
+    }
+
+    @Test
+    func confirmDeleteSurfacesErrorOnFailure() async throws {
+        let app = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let dryRunOutput = """
+        ◎ Alpha , 8.0MB
+          ✓ /Applications/Alpha.app
+        """
+        let command = MockUninstallCommandService { _, dryRun in
+            if dryRun {
+                return UninstallCommandOutcome(exitCode: 0, output: dryRunOutput, error: "")
+            }
+            return UninstallCommandOutcome(exitCode: 127, output: "", error: "mo: command not found")
+        }
+        let sut = DefaultUninstallViewModel(
+            service: MockInstalledAppsService(result: .success([app])),
+            uninstallService: command,
+            preferences: InMemoryPreferencesStore(safeModeEnabled: true)
+        )
+
+        sut.load()
+        try await waitUntil { !sut.apps.isEmpty }
+        sut.toggleSelection(of: app.id, isSelected: true)
+
+        await sut.uninstallSelected()
+        await sut.confirmDelete()
+
+        #expect(sut.uninstallErrorMessage == "mo: command not found")
+        // Preview stays so the user can retry.
+        #expect(sut.preview != nil)
+    }
+
+    @Test
+    func confirmDeleteWithoutPreviewIsNoOp() async throws {
+        let command = MockUninstallCommandService(
+            outcome: UninstallCommandOutcome(exitCode: 0, output: "", error: "")
+        )
+        let sut = DefaultUninstallViewModel(
+            service: MockInstalledAppsService(result: .success([])),
+            uninstallService: command,
+            preferences: InMemoryPreferencesStore(safeModeEnabled: true)
+        )
+
+        await sut.confirmDelete()
+
+        let invocations = await command.invocations
+        #expect(invocations.isEmpty)
+    }
+
+    @Test
+    func realUninstallDoesNotPopulatePreview() async throws {
+        let app = InstalledApp(name: "Alpha", bundleIdentifier: "x.a", version: "1", url: URL(fileURLWithPath: "/A.app"))
+        let command = MockUninstallCommandService(
+            outcome: UninstallCommandOutcome(exitCode: 0, output: "moved to trash", error: "")
+        )
+        let sut = DefaultUninstallViewModel(
+            service: MockInstalledAppsService(result: .success([app])),
+            uninstallService: command,
+            preferences: InMemoryPreferencesStore(safeModeEnabled: false)
+        )
+
+        sut.load()
+        try await waitUntil { !sut.apps.isEmpty }
+        sut.toggleSelection(of: app.id, isSelected: true)
+
+        await sut.uninstallSelected()
+
+        #expect(sut.preview == nil)
     }
 
     @Test

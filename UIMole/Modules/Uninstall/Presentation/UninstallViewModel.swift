@@ -11,13 +11,16 @@ protocol UninstallViewModel: AnyObject, Observable {
     var uninstallErrorMessage: String? { get }
     var safeModeEnabled: Bool { get }
     var selectedApps: [InstalledApp] { get }
+    var preview: UninstallPreview? { get }
 
     func load()
     func refresh()
     func toggleSelection(of id: InstalledApp.ID, isSelected: Bool)
     func clearSelection()
     func uninstallSelected() async
+    func confirmDelete() async
     func dismissUninstallError()
+    func dismissPreview()
 }
 
 @MainActor
@@ -30,6 +33,7 @@ final class DefaultUninstallViewModel: UninstallViewModel {
     private(set) var selectedIDs: Set<InstalledApp.ID> = []
     private(set) var isUninstalling: Bool = false
     private(set) var uninstallErrorMessage: String?
+    private(set) var preview: UninstallPreview?
 
     var safeModeEnabled: Bool { preferences?.safeModeEnabled ?? true }
 
@@ -78,6 +82,10 @@ final class DefaultUninstallViewModel: UninstallViewModel {
         uninstallErrorMessage = nil
     }
 
+    func dismissPreview() {
+        preview = nil
+    }
+
     func uninstallSelected() async {
         guard let uninstallService else { return }
         let targets = selectedApps
@@ -96,14 +104,44 @@ final class DefaultUninstallViewModel: UninstallViewModel {
                 dryRun: dryRun
             )
             if outcome.isSuccess {
-                // Real uninstalls change the filesystem; refresh to reflect that.
-                // Dry-run leaves the list intact.
-                if !dryRun {
+                if dryRun {
+                    // Surface the mole dry-run output so the user can see what
+                    // would happen; the file system is untouched.
+                    preview = UninstallPreviewParser.parse(outcome.output)
                     clearSelection()
-                    startFetch()
                 } else {
                     clearSelection()
+                    startFetch()
                 }
+            } else {
+                uninstallErrorMessage = outcome.error.isEmpty
+                    ? outcome.output
+                    : outcome.error
+            }
+        } catch {
+            uninstallErrorMessage = String(describing: error)
+        }
+    }
+
+    func confirmDelete() async {
+        guard let uninstallService else { return }
+        guard let preview, !preview.plans.isEmpty else { return }
+
+        isUninstalling = true
+        uninstallErrorMessage = nil
+        defer { isUninstalling = false }
+
+        let names = preview.plans.map(\.name)
+
+        do {
+            let outcome = try await uninstallService.uninstall(
+                appNames: names,
+                dryRun: false
+            )
+            if outcome.isSuccess {
+                self.preview = nil
+                clearSelection()
+                startFetch()
             } else {
                 uninstallErrorMessage = outcome.error.isEmpty
                     ? outcome.output
@@ -141,4 +179,5 @@ final class DefaultUninstallViewModel: UninstallViewModel {
             self.errorMessage = String(describing: error)
         }
     }
+
 }
