@@ -103,6 +103,34 @@ struct CommandExecutorTests {
     }
 
     @Test
+    func doesNotDeadlockOnLargeStdout() async throws {
+        // ~512KB of output — well above the ~64KB pipe buffer. Without the
+        // async pipe drain in CommandExecutor, the child blocks on write and
+        // the call hangs forever.
+        let sut = CommandExecutor()
+        let result = try await sut.execute(
+            "/bin/sh",
+            arguments: ["-c", "yes hello | head -c 524288"]
+        )
+
+        #expect(result.isSuccess)
+        #expect(result.output.utf8.count == 524_288)
+    }
+
+    @Test
+    func doesNotDeadlockOnLargeStderr() async throws {
+        let sut = CommandExecutor()
+        let result = try await sut.execute(
+            "/bin/sh",
+            arguments: ["-c", "yes oops | head -c 524288 1>&2; exit 4"]
+        )
+
+        #expect(result.exitCode == 4)
+        #expect(result.error.utf8.count == 524_288)
+        #expect(result.output.isEmpty)
+    }
+
+    @Test
     func executesEmbeddedMoleStatus() async throws {
         let statusURL = try #require(
             Bundle.main.url(forResource: "status", withExtension: nil, subdirectory: "mole"),
