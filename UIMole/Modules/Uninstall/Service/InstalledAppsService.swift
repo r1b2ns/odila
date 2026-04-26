@@ -41,8 +41,11 @@ final class DefaultInstalledAppsService: InstalledAppsService {
                     }
                 }
             }
-            return results.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            return results.sorted { lhs, rhs in
+                if lhs.sizeBytes != rhs.sizeBytes {
+                    return lhs.sizeBytes > rhs.sizeBytes
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }.value
     }
@@ -101,7 +104,28 @@ final class DefaultInstalledAppsService: InstalledAppsService {
             name: name,
             bundleIdentifier: bundleID,
             version: version,
-            url: url
+            url: url,
+            sizeBytes: bundleSize(at: url)
         )
+    }
+
+    private static func bundleSize(at url: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles],
+            errorHandler: { _, _ in true }
+        ) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { continue }
+            let size = values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0
+            total &+= Int64(size)
+        }
+        return total
     }
 }
