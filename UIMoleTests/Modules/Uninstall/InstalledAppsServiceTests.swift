@@ -100,6 +100,30 @@ struct InstalledAppsServiceTests {
     }
 
     @Test
+    func skipsAppsWhenParentDirectoryIsNotWritable() async throws {
+        let root = try makeTempRoot()
+        try writeFakeApp(
+            at: root.appendingPathComponent("Locked.app"),
+            bundleID: "com.example.locked",
+            name: "Locked",
+            version: "1"
+        )
+
+        // Drop write permission on the parent so the bundle cannot be moved
+        // to Trash — the service must filter it out.
+        let fileManager = FileManager.default
+        try fileManager.setAttributes([.posixPermissions: 0o555], ofItemAtPath: root.path)
+        defer {
+            try? fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: root.path)
+        }
+
+        let sut = DefaultInstalledAppsService(searchURLs: [root])
+        let apps = try await sut.fetchApps()
+
+        #expect(apps.isEmpty)
+    }
+
+    @Test
     func missingSearchPathReturnsEmpty() async throws {
         let missing = URL(fileURLWithPath: "/tmp/uimole-tests-nonexistent-\(UUID().uuidString)")
         let sut = DefaultInstalledAppsService(searchURLs: [missing])

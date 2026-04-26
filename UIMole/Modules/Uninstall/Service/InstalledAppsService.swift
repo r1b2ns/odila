@@ -84,6 +84,8 @@ final class DefaultInstalledAppsService: InstalledAppsService {
     }
 
     private static func parseApp(at url: URL) -> InstalledApp? {
+        guard isUninstallable(at: url) else { return nil }
+
         let plistURL = url.appendingPathComponent("Contents/Info.plist")
         guard let data = try? Data(contentsOf: plistURL) else { return nil }
         guard
@@ -107,6 +109,19 @@ final class DefaultInstalledAppsService: InstalledAppsService {
             url: url,
             sizeBytes: bundleSize(at: url)
         )
+    }
+
+    /// True when the current user can move this bundle to the Trash. Filters
+    /// out SIP-protected system apps and bundles installed by another admin
+    /// where we don't have write access on the parent directory.
+    private static func isUninstallable(at url: URL) -> Bool {
+        if url.path.hasPrefix("/System/") {
+            return false
+        }
+        let fileManager = FileManager.default
+        let parent = url.deletingLastPathComponent().path
+        guard fileManager.isWritableFile(atPath: parent) else { return false }
+        return fileManager.isDeletableFile(atPath: url.path)
     }
 
     private static func bundleSize(at url: URL) -> Int64 {
