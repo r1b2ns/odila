@@ -13,10 +13,12 @@ struct UninstallCommandServiceTests {
 
         private(set) var invocations: [Invocation] = []
         private let output: String
+        private let error: String
         private let exitCode: Int32
 
-        init(output: String = "", exitCode: Int32 = 0) {
+        init(output: String = "", error: String = "", exitCode: Int32 = 0) {
             self.output = output
+            self.error = error
             self.exitCode = exitCode
         }
 
@@ -33,12 +35,12 @@ struct UninstallCommandServiceTests {
                     environment: environment
                 )
             )
-            return CommandResult(output: output, error: "", exitCode: exitCode)
+            return CommandResult(output: output, error: error, exitCode: exitCode)
         }
     }
 
     @Test
-    func buildsShellCommandWithQuotedNamesAndDryRun() async throws {
+    func dryRunInvokesBundledScriptWithDryRunFlag() async throws {
         let executor = RecordingExecutor()
         let sut = MoleUninstallCommandService(executor: executor)
 
@@ -50,23 +52,53 @@ struct UninstallCommandServiceTests {
         let invocations = await executor.invocations
         #expect(invocations.count == 1)
         let first = try #require(invocations.first)
-        #expect(first.executable == "/bin/sh")
-        #expect(first.arguments[0] == "-c")
-        #expect(first.arguments[1] == "echo y | mo uninstall 'Google Chrome' 'VS Code' --dry-run")
-        // Hardened PATH so `mo` resolves from Finder launches.
+        #expect(first.executable == "/bin/bash")
+        #expect(first.arguments[0].hasSuffix("uninstall-mo.sh"))
+        #expect(Array(first.arguments.dropFirst()) == ["--dry-run", "Google Chrome", "VS Code"])
         #expect(first.environment?["PATH"]?.contains("/opt/homebrew/bin") == true)
     }
 
     @Test
-    func omitsDryRunFlagWhenDisabled() async throws {
+    func realUninstallRunsAsUserNotRoot() async throws {
         let executor = RecordingExecutor()
         let sut = MoleUninstallCommandService(executor: executor)
 
         _ = try await sut.uninstall(appNames: ["Alpha"], dryRun: false)
 
         let invocations = await executor.invocations
-        let script = invocations.first?.arguments[1] ?? ""
-        #expect(script == "echo y | mo uninstall 'Alpha'")
+        let first = try #require(invocations.first)
+        // mole hangs at "Finalizing list..." when run as root via
+        // `osascript do shell script with administrator privileges`. We
+        // run it as the user instead — mole pops its own native auth
+        // dialog when sudo is actually needed.
+        #expect(first.executable == "/bin/bash")
+        #expect(first.executable != "/usr/bin/osascript")
+        #expect(first.arguments[0].hasSuffix("uninstall-mo.sh"))
+        #expect(Array(first.arguments.dropFirst()) == ["Alpha"])
+        // Real uninstall must NOT pass --dry-run.
+        #expect(first.arguments.contains("--dry-run") == false)
+    }
+
+    @Test
+    func translatesUserCancellationFromOsascript() async throws {
+        let executor = RecordingExecutor(
+            error: "execution error: User canceled. (-128)",
+            exitCode: 1
+        )
+        let sut = MoleUninstallCommandService(executor: executor)
+
+        let outcome = try await sut.uninstall(appNames: ["Alpha"], dryRun: false)
+
+        #expect(outcome.isSuccess == false)
+        #expect(outcome.error.localizedCaseInsensitiveContains("cancelled"))
+    }
+
+    @Test
+    func appleScriptQuoteEscapesBackslashesAndQuotes() {
+        // Inputs from `shellQuote` may contain backslash-escaped quotes.
+        let quoted = MoleUninstallCommandService.appleScriptQuote(#"It's \"weird\""#)
+        // Backslash-escape backslashes first, then double quotes.
+        #expect(quoted == #""It's \\\"weird\\\"""#)
     }
 
     @Test

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 protocol UninstallViewModel: AnyObject, Observable {
@@ -26,6 +27,11 @@ protocol UninstallViewModel: AnyObject, Observable {
 @MainActor
 @Observable
 final class DefaultUninstallViewModel: UninstallViewModel {
+
+    private static let logger = Logger(
+        subsystem: "br.com.UIMole",
+        category: "uninstall.viewmodel"
+    )
 
     private(set) var apps: [InstalledApp] = []
     private(set) var errorMessage: String?
@@ -98,6 +104,10 @@ final class DefaultUninstallViewModel: UninstallViewModel {
         let dryRun = safeModeEnabled
         let names = targets.map(\.name)
 
+        Self.logger.info(
+            "uninstallSelected — names=\(names, privacy: .public) dryRun=\(dryRun, privacy: .public)"
+        )
+
         do {
             let outcome = try await uninstallService.uninstall(
                 appNames: names,
@@ -109,16 +119,23 @@ final class DefaultUninstallViewModel: UninstallViewModel {
                     // would happen; the file system is untouched.
                     preview = UninstallPreviewParser.parse(outcome.output)
                     clearSelection()
+                    Self.logger.info("uninstallSelected — dry-run preview ready")
                 } else {
                     clearSelection()
                     startFetch()
+                    Self.logger.info("uninstallSelected — uninstall completed")
                 }
             } else {
-                uninstallErrorMessage = outcome.error.isEmpty
-                    ? outcome.output
-                    : outcome.error
+                let message = Self.combinedMessage(outcome: outcome)
+                Self.logger.error(
+                    "uninstallSelected — failure exit=\(outcome.exitCode, privacy: .public) message=\(message, privacy: .public)"
+                )
+                uninstallErrorMessage = message
             }
         } catch {
+            Self.logger.error(
+                "uninstallSelected — threw error=\(String(describing: error), privacy: .public)"
+            )
             uninstallErrorMessage = String(describing: error)
         }
     }
@@ -133,6 +150,10 @@ final class DefaultUninstallViewModel: UninstallViewModel {
 
         let names = preview.plans.map(\.name)
 
+        Self.logger.info(
+            "confirmDelete — names=\(names, privacy: .public)"
+        )
+
         do {
             let outcome = try await uninstallService.uninstall(
                 appNames: names,
@@ -142,13 +163,38 @@ final class DefaultUninstallViewModel: UninstallViewModel {
                 self.preview = nil
                 clearSelection()
                 startFetch()
+                Self.logger.info("confirmDelete — uninstall completed")
             } else {
-                uninstallErrorMessage = outcome.error.isEmpty
-                    ? outcome.output
-                    : outcome.error
+                let message = Self.combinedMessage(outcome: outcome)
+                Self.logger.error(
+                    "confirmDelete — failure exit=\(outcome.exitCode, privacy: .public) message=\(message, privacy: .public)"
+                )
+                uninstallErrorMessage = message
             }
         } catch {
+            Self.logger.error(
+                "confirmDelete — threw error=\(String(describing: error), privacy: .public)"
+            )
             uninstallErrorMessage = String(describing: error)
+        }
+    }
+
+    /// Mole writes the human-readable failure (e.g. "Admin access denied") to
+    /// stdout while pushing low-level diagnostics ("/dev/tty: Device not
+    /// configured") to stderr. Joining both keeps the actionable line visible
+    /// to the user.
+    private static func combinedMessage(outcome: UninstallCommandOutcome) -> String {
+        let stdout = outcome.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let stderr = outcome.error.trimmingCharacters(in: .whitespacesAndNewlines)
+        switch (stdout.isEmpty, stderr.isEmpty) {
+        case (true, true):
+            return "mo exited with code \(outcome.exitCode)."
+        case (false, true):
+            return stdout
+        case (true, false):
+            return stderr
+        case (false, false):
+            return "\(stdout)\n\n\(stderr)"
         }
     }
 

@@ -41,8 +41,11 @@ final class DefaultInstalledAppsService: InstalledAppsService {
                     }
                 }
             }
-            return results.sorted {
-                $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending
+            return results.sorted { lhs, rhs in
+                if lhs.sizeBytes != rhs.sizeBytes {
+                    return lhs.sizeBytes > rhs.sizeBytes
+                }
+                return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
             }
         }.value
     }
@@ -81,6 +84,8 @@ final class DefaultInstalledAppsService: InstalledAppsService {
     }
 
     private static func parseApp(at url: URL) -> InstalledApp? {
+        guard isUninstallable(at: url) else { return nil }
+
         let plistURL = url.appendingPathComponent("Contents/Info.plist")
         guard let data = try? Data(contentsOf: plistURL) else { return nil }
         guard
@@ -101,7 +106,41 @@ final class DefaultInstalledAppsService: InstalledAppsService {
             name: name,
             bundleIdentifier: bundleID,
             version: version,
-            url: url
+            url: url,
+            sizeBytes: bundleSize(at: url)
         )
+    }
+
+    /// True when the current user can move this bundle to the Trash. Filters
+    /// out SIP-protected system apps and bundles installed by another admin
+    /// where we don't have write access on the parent directory.
+    private static func isUninstallable(at url: URL) -> Bool {
+        if url.path.hasPrefix("/System/") {
+            return false
+        }
+        let fileManager = FileManager.default
+        let parent = url.deletingLastPathComponent().path
+        guard fileManager.isWritableFile(atPath: parent) else { return false }
+        return fileManager.isDeletableFile(atPath: url.path)
+    }
+
+    private static func bundleSize(at url: URL) -> Int64 {
+        let keys: [URLResourceKey] = [.totalFileAllocatedSizeKey, .fileAllocatedSizeKey, .isRegularFileKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: url,
+            includingPropertiesForKeys: keys,
+            options: [.skipsHiddenFiles],
+            errorHandler: { _, _ in true }
+        ) else {
+            return 0
+        }
+        var total: Int64 = 0
+        for case let fileURL as URL in enumerator {
+            guard let values = try? fileURL.resourceValues(forKeys: Set(keys)),
+                  values.isRegularFile == true else { continue }
+            let size = values.totalFileAllocatedSize ?? values.fileAllocatedSize ?? 0
+            total &+= Int64(size)
+        }
+        return total
     }
 }

@@ -28,6 +28,13 @@ struct UninstallView<ViewModel: UninstallViewModel>: View {
             }
         }
         .frame(minWidth: 720, minHeight: 560)
+        .overlay {
+            if viewModel.isUninstalling && viewModel.preview == nil {
+                ProcessingOverlay(message: processingMessage)
+                    .transition(.opacity)
+            }
+        }
+        .animation(.easeInOut(duration: 0.15), value: viewModel.isUninstalling)
         .navigationTitle("Uninstall")
         .toolbar { toolbarContent }
         .onAppear { viewModel.load() }
@@ -114,6 +121,12 @@ struct UninstallView<ViewModel: UninstallViewModel>: View {
         viewModel.safeModeEnabled ? "Preview" : "Uninstall"
     }
 
+    private var processingMessage: String {
+        viewModel.safeModeEnabled
+            ? "Generating uninstall preview…"
+            : "Uninstalling…"
+    }
+
     private var confirmationMessage: String {
         let names = viewModel.selectedApps.map(\.name).joined(separator: ", ")
         if viewModel.safeModeEnabled {
@@ -155,10 +168,47 @@ struct UninstallView<ViewModel: UninstallViewModel>: View {
     }
 }
 
+private struct ProcessingOverlay: View {
+    let message: String
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.25)
+                .ignoresSafeArea()
+
+            VStack(spacing: 12) {
+                ProgressView()
+                    .controlSize(.large)
+                Text(message)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(24)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(.regularMaterial)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(Color.secondary.opacity(0.2), lineWidth: 1)
+            )
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(message)
+    }
+}
+
 private struct InstalledAppRow: View {
     let app: InstalledApp
     let isSelected: Bool
     let onToggle: (Bool) -> Void
+
+    static let sizeFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.countStyle = .file
+        formatter.allowedUnits = [.useMB, .useGB]
+        return formatter
+    }()
 
     var body: some View {
         HStack(spacing: 12) {
@@ -189,6 +239,17 @@ private struct InstalledAppRow: View {
             }
 
             Spacer()
+
+            if app.sizeBytes > 0 {
+                Text(InstalledAppRow.sizeFormatter.string(fromByteCount: app.sizeBytes))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 1)
+                    .background(
+                        Capsule().fill(Color.secondary.opacity(0.15))
+                    )
+            }
 
             if !app.version.isEmpty {
                 Text(app.version)
