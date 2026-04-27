@@ -59,12 +59,12 @@ final class CommandExecutor: CommandExecuting {
             process.terminationHandler = { proc in
                 outputPipe.fileHandleForReading.readabilityHandler = nil
                 errorPipe.fileHandleForReading.readabilityHandler = nil
-                if let trailing = try? outputPipe.fileHandleForReading.readToEnd() {
-                    outputBuffer.append(trailing)
-                }
-                if let trailing = try? errorPipe.fileHandleForReading.readToEnd() {
-                    errorBuffer.append(trailing)
-                }
+                // Don't `readToEnd()` here — if the child left long-lived
+                // descendants (e.g. mole's Dock/LaunchServices refresh) that
+                // inherited the pipe's write end, EOF never arrives and the
+                // call would hang forever. The async readabilityHandler has
+                // already drained everything that was actually written by
+                // the time the immediate child exited.
                 let outputData = outputBuffer.snapshot
                 let errorData = errorBuffer.snapshot
                 let result = CommandResult(
