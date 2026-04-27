@@ -13,10 +13,11 @@ protocol UninstallCommandService: Sendable {
     func uninstall(appNames: [String], dryRun: Bool) async throws -> UninstallCommandOutcome
 }
 
-/// Invokes the user-installed `mo uninstall` CLI (Homebrew or manual install).
-/// We don't ship mole's shell scripts; this service expects the `mo` binary on
-/// PATH. Homebrew's default install locations are forced into PATH so the call
-/// succeeds when the app is launched from Finder without an inherited shell.
+/// Invokes the bundled `uninstall-mo.sh` helper which wraps the user-installed
+/// `mo uninstall` CLI. The script encapsulates PATH/HOME hardening and the
+/// double-fork detach pattern needed when running under `osascript do shell
+/// script with administrator privileges` (mole forks long-lived Dock/
+/// LaunchServices helpers that would otherwise hold the osascript pipe open).
 final class MoleUninstallCommandService: UninstallCommandService {
 
     private static let logger = Logger(
@@ -25,9 +26,35 @@ final class MoleUninstallCommandService: UninstallCommandService {
     )
 
     private let executor: CommandExecuting
+    private let scriptURL: URL
 
-    init(executor: CommandExecuting) {
+    init(
+        executor: CommandExecuting,
+        scriptURL: URL = MoleUninstallCommandService.bundledScriptURL()
+    ) {
         self.executor = executor
+        self.scriptURL = scriptURL
+    }
+
+    /// Resolves `Resources/Scripts/uninstall-mo.sh` from the app bundle. Falls
+    /// back to a path relative to the source tree so unit tests running
+    /// against a freshly-built test bundle still find the script.
+    static func bundledScriptURL() -> URL {
+        if let url = Bundle.main.url(
+            forResource: "uninstall-mo",
+            withExtension: "sh"
+        ) {
+            return url
+        }
+        // Test host's Bundle.main is the test runner, which doesn't carry the
+        // app's resources. Walk up to the SRCROOT-relative copy.
+        let fallback = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent() // Service
+            .deletingLastPathComponent() // Uninstall
+            .deletingLastPathComponent() // Modules
+            .deletingLastPathComponent() // UIMole
+            .appendingPathComponent("Resources/Scripts/uninstall-mo.sh")
+        return fallback
     }
 
     func uninstall(appNames: [String], dryRun: Bool) async throws -> UninstallCommandOutcome {
@@ -35,23 +62,29 @@ final class MoleUninstallCommandService: UninstallCommandService {
             return UninstallCommandOutcome(exitCode: 0, output: "", error: "")
         }
 
-        let quoted = appNames.map(Self.shellQuote).joined(separator: " ")
-        var moCommand = "echo y | mo uninstall \(quoted)"
-        if dryRun {
-            moCommand += " --dry-run"
-        }
-
         Self.logger.info(
-            "Running mo uninstall — apps=\(appNames, privacy: .public) dryRun=\(dryRun, privacy: .public)"
+            "Running mo uninstall — apps=\(appNames, privacy: .public) dryRun=\(dryRun, privacy: .public) script=\(self.scriptURL.path, privacy: .public)"
         )
 
         do {
-            let result: CommandResult
+            // We run mole as the regular user for both dry-run and real
+            // uninstall. Running mole as root via `osascript do shell script
+            // with administrator privileges` causes mole to hang at
+            // "Finalizing list..." (mole bug). For ~/Applications/ items
+            // owned by the user, mole proceeds directly. For /Applications/
+            // items needing sudo, mole pops its own native auth dialog via
+            // `osascript display dialog` and uses `sudo -S` internally.
+            var args = [scriptURL.path]
             if dryRun {
-                result = try await runUnprivileged(moCommand: moCommand)
-            } else {
-                result = try await runAsAdmin(moCommand: moCommand)
+                args.append("--dry-run")
             }
+            args.append(contentsOf: appNames)
+            let result = try await executor.execute(
+                "/bin/bash",
+                arguments: args,
+                currentDirectory: nil,
+                environment: Self.makeEnvironment()
+            )
             return finalize(result: result)
         } catch {
             Self.logger.error(
@@ -61,44 +94,10 @@ final class MoleUninstallCommandService: UninstallCommandService {
         }
     }
 
-    private func runUnprivileged(moCommand: String) async throws -> CommandResult {
-        try await executor.execute(
-            "/bin/sh",
-            arguments: ["-c", moCommand],
-            currentDirectory: nil,
-            environment: Self.makeEnvironment()
-        )
-    }
-
-    /// Wraps the `mo` invocation in an AppleScript `do shell script ... with
-    /// administrator privileges`. macOS shows the native auth dialog (Touch ID
-    /// or password) and runs the script as root without needing a controlling
-    /// TTY — this is what unblocks mole's interactive sudo prompts that fail
-    /// with `/dev/tty: Device not configured` when launched from a GUI app.
-    private func runAsAdmin(moCommand: String) async throws -> CommandResult {
-        // Root's environment loses Homebrew on PATH and uses /var/root as HOME.
-        // Re-export the user's HOME/USER so mole touches the right Library
-        // directories when scanning leftovers.
-        let path = "export PATH=\"/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin\""
-        let home = "export HOME=\(Self.shellQuote(NSHomeDirectory()))"
-        let user = "export USER=\(Self.shellQuote(NSUserName()))"
-        // Merge stderr into stdout so mole's `Admin access denied` line and
-        // any sudo diagnostics both reach `do shell script`'s captured output.
-        let shellScript = "\(path); \(home); \(user); \(moCommand) 2>&1"
-        let appleScript = "do shell script \(Self.appleScriptQuote(shellScript)) with administrator privileges"
-
-        return try await executor.execute(
-            "/usr/bin/osascript",
-            arguments: ["-e", appleScript],
-            currentDirectory: nil,
-            environment: nil
-        )
-    }
-
     private func finalize(result: CommandResult) -> UninstallCommandOutcome {
-        // osascript reports a cancelled auth dialog as exit 1 with `(-128)` in
-        // stderr. Translate it to a friendlier message so the UI doesn't show
-        // raw AppleScript noise.
+        // mole's own GUI sudo dialog uses osascript internally and surfaces
+        // a cancelled auth as exit 1 with `(-128)` somewhere in stderr.
+        // Translate it to a friendlier message.
         if result.exitCode != 0 && Self.isUserCancellation(stderr: result.error) {
             Self.logger.info("mo uninstall cancelled by user at auth dialog")
             return UninstallCommandOutcome(

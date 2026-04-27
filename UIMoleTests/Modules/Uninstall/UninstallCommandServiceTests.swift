@@ -40,7 +40,7 @@ struct UninstallCommandServiceTests {
     }
 
     @Test
-    func buildsShellCommandWithQuotedNamesAndDryRun() async throws {
+    func dryRunInvokesBundledScriptWithDryRunFlag() async throws {
         let executor = RecordingExecutor()
         let sut = MoleUninstallCommandService(executor: executor)
 
@@ -52,15 +52,14 @@ struct UninstallCommandServiceTests {
         let invocations = await executor.invocations
         #expect(invocations.count == 1)
         let first = try #require(invocations.first)
-        #expect(first.executable == "/bin/sh")
-        #expect(first.arguments[0] == "-c")
-        #expect(first.arguments[1] == "echo y | mo uninstall 'Google Chrome' 'VS Code' --dry-run")
-        // Hardened PATH so `mo` resolves from Finder launches.
+        #expect(first.executable == "/bin/bash")
+        #expect(first.arguments[0].hasSuffix("uninstall-mo.sh"))
+        #expect(Array(first.arguments.dropFirst()) == ["--dry-run", "Google Chrome", "VS Code"])
         #expect(first.environment?["PATH"]?.contains("/opt/homebrew/bin") == true)
     }
 
     @Test
-    func realUninstallEscalatesViaOsascript() async throws {
+    func realUninstallRunsAsUserNotRoot() async throws {
         let executor = RecordingExecutor()
         let sut = MoleUninstallCommandService(executor: executor)
 
@@ -68,18 +67,16 @@ struct UninstallCommandServiceTests {
 
         let invocations = await executor.invocations
         let first = try #require(invocations.first)
-        #expect(first.executable == "/usr/bin/osascript")
-        #expect(first.arguments[0] == "-e")
-        let appleScript = first.arguments[1]
-        #expect(appleScript.contains("do shell script"))
-        #expect(appleScript.contains("with administrator privileges"))
-        #expect(appleScript.contains("mo uninstall 'Alpha'"))
-        #expect(appleScript.contains("--dry-run") == false)
-        // Re-exports HOME/PATH so root sees Homebrew + the user's Library.
-        #expect(appleScript.contains("export PATH="))
-        #expect(appleScript.contains("export HOME="))
-        // stderr must be merged into stdout so mole's failure lines reach us.
-        #expect(appleScript.contains("2>&1"))
+        // mole hangs at "Finalizing list..." when run as root via
+        // `osascript do shell script with administrator privileges`. We
+        // run it as the user instead — mole pops its own native auth
+        // dialog when sudo is actually needed.
+        #expect(first.executable == "/bin/bash")
+        #expect(first.executable != "/usr/bin/osascript")
+        #expect(first.arguments[0].hasSuffix("uninstall-mo.sh"))
+        #expect(Array(first.arguments.dropFirst()) == ["Alpha"])
+        // Real uninstall must NOT pass --dry-run.
+        #expect(first.arguments.contains("--dry-run") == false)
     }
 
     @Test
