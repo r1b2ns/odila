@@ -55,6 +55,11 @@ targets:
         script: |
           cp "${SRCROOT}/LICENSE" "${SRCROOT}/UIMole/Resources/LICENSE.txt"
         basedOnDependencyAnalysis: false
+      - name: Sync setup script
+        script: |
+          cp "${SRCROOT}/Scripts/setup.sh" "${SRCROOT}/UIMole/Resources/Scripts/setup.sh"
+          chmod +x "${SRCROOT}/UIMole/Resources/Scripts/setup.sh"
+        basedOnDependencyAnalysis: false
       - name: Fetch Mole CLI
         script: |
           "${SRCROOT}/Scripts/fetch-mole.sh"
