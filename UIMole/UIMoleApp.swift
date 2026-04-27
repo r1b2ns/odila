@@ -4,6 +4,7 @@ import SwiftUI
 struct UIMoleApp: App {
 
     @State private var path = NavigationPath()
+    @State private var showOnboarding: Bool = !UserDefaultsPreferencesStore().onboardingCompleted
 
     var body: some Scene {
         WindowGroup {
@@ -12,6 +13,11 @@ struct UIMoleApp: App {
                     .navigationDestination(for: HomeDestination.self) { destination in
                         destinationView(for: destination)
                     }
+            }
+            .sheet(isPresented: $showOnboarding) {
+                OnboardingFactory.make {
+                    showOnboarding = false
+                }
             }
         }
     }
