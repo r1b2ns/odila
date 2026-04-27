@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 protocol AnalyzeCachePurging: Sendable {
     func purgeIfNeeded() async
@@ -9,6 +10,11 @@ protocol AnalyzeCachePurging: Sendable {
 /// Subsequent navigations during the same session keep the populated cache,
 /// which makes Rescan instant.
 actor AnalyzeCachePurger: AnalyzeCachePurging {
+
+    private static let logger = Logger(
+        subsystem: "br.com.UIMole",
+        category: "analyze.cache"
+    )
 
     private let executor: CommandExecuting
     private let cacheURL: URL
@@ -28,11 +34,24 @@ actor AnalyzeCachePurger: AnalyzeCachePurging {
     }
 
     func purgeIfNeeded() async {
-        guard !hasPurged else { return }
+        guard !hasPurged else {
+            Self.logger.debug("purge skipped — already purged this session")
+            return
+        }
         hasPurged = true
-        _ = try? await executor.execute(
+        Self.logger.info(
+            "purging analyze cache — path=\(self.cacheURL.path, privacy: .public)"
+        )
+        let result = try? await executor.execute(
             "/bin/rm",
             arguments: ["-rf", cacheURL.path]
         )
+        if let result, !result.isSuccess {
+            Self.logger.error(
+                "purge rm failed — exit=\(result.exitCode, privacy: .public) stderr=\(result.error, privacy: .public)"
+            )
+        } else if result == nil {
+            Self.logger.error("purge rm threw before producing a result")
+        }
     }
 }

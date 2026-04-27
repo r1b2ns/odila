@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 
 @MainActor
 protocol AnalyzeViewModel: AnyObject, Observable {
@@ -15,6 +16,11 @@ protocol AnalyzeViewModel: AnyObject, Observable {
 @MainActor
 @Observable
 final class DefaultAnalyzeViewModel: AnalyzeViewModel {
+
+    private static let logger = Logger(
+        subsystem: "br.com.UIMole",
+        category: "analyze.viewmodel"
+    )
 
     private(set) var report: AnalyzeReport?
     private(set) var errorMessage: String?
@@ -38,11 +44,18 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
     }
 
     func load() {
-        guard report == nil, currentTask == nil else { return }
+        guard report == nil, currentTask == nil else {
+            Self.logger.debug(
+                "load skipped — hasReport=\(self.report != nil, privacy: .public) inflight=\(self.currentTask != nil, privacy: .public)"
+            )
+            return
+        }
+        Self.logger.info("load started")
         startFetch()
     }
 
     func refresh() {
+        Self.logger.info("refresh requested — cancelling inflight task")
         currentTask?.cancel()
         startFetch()
     }
@@ -65,15 +78,31 @@ final class DefaultAnalyzeViewModel: AnalyzeViewModel {
             stopProgressStream()
         }
         await cachePurger?.purgeIfNeeded()
-        if Task.isCancelled { return }
+        if Task.isCancelled {
+            Self.logger.info("fetch cancelled after cache purge")
+            return
+        }
         do {
             let report = try await service.fetchReport()
-            if Task.isCancelled { return }
+            if Task.isCancelled {
+                Self.logger.info("fetch cancelled after service returned")
+                return
+            }
             self.report = report
             self.errorMessage = nil
+            Self.logger.info(
+                "fetch completed — entries=\(report.entries.count, privacy: .public) totalBytes=\(report.totalSize, privacy: .public)"
+            )
         } catch {
-            if Task.isCancelled { return }
-            self.errorMessage = String(describing: error)
+            if Task.isCancelled {
+                Self.logger.info("fetch cancelled during error handling")
+                return
+            }
+            let message = String(describing: error)
+            self.errorMessage = message
+            Self.logger.error(
+                "fetch failed — error=\(message, privacy: .public)"
+            )
         }
     }
 
