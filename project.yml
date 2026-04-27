@@ -30,11 +30,14 @@ targets:
       - path: UIMole
         excludes:
           - "Resources/Scripts/**"
+          - "Resources/LICENSE.txt"
       - path: Vendor/mole
         type: folder
         buildPhase: resources
       - path: UIMole/Resources/Scripts
         type: folder
+        buildPhase: resources
+      - path: UIMole/Resources/LICENSE.txt
         buildPhase: resources
     resources:
       - path: UIMole/Assets.xcassets
@@ -48,6 +51,10 @@ targets:
         INFOPLIST_KEY_NSMainStoryboardFile: ""
         INFOPLIST_KEY_NSPrincipalClass: NSApplication
     preBuildScripts:
+      - name: Sync LICENSE
+        script: |
+          cp "${SRCROOT}/LICENSE" "${SRCROOT}/UIMole/Resources/LICENSE.txt"
+        basedOnDependencyAnalysis: false
       - name: Fetch Mole CLI
         script: |
           "${SRCROOT}/Scripts/fetch-mole.sh"
