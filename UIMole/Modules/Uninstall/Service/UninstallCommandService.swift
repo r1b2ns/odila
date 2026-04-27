@@ -67,13 +67,12 @@ final class MoleUninstallCommandService: UninstallCommandService {
         )
 
         do {
-            // We run mole as the regular user for both dry-run and real
-            // uninstall. Running mole as root via `osascript do shell script
-            // with administrator privileges` causes mole to hang at
-            // "Finalizing list..." (mole bug). For ~/Applications/ items
-            // owned by the user, mole proceeds directly. For /Applications/
-            // items needing sudo, mole pops its own native auth dialog via
-            // `osascript display dialog` and uses `sudo -S` internally.
+            // The wrapper script decides per-invocation whether to elevate:
+            // user-owned items run as the user; anything in /Applications
+            // owned by root is elevated via `osascript with administrator
+            // privileges` so the user gets the standard macOS auth dialog
+            // (mole 1.36+ can't read /dev/tty when launched without a
+            // controlling terminal, so its built-in sudo path fails here).
             var args = [scriptURL.path]
             if dryRun {
                 args.append("--dry-run")
